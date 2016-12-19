@@ -1,0 +1,11 @@
+{
+  "name": "realbeobe-lambda"
+, "version": "0.0.1"
+, "private": true
+, "dependencies": {
+    "cheerio": "0.22.0",
+    "aws-sdk": "2.7.15",
+    "request": "2.79.0",
+    "iconv-lite": "0.4.15"
+  }
+}
