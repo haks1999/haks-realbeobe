@@ -7,6 +7,8 @@
     "aws-sdk": "2.7.15",
     "request": "2.79.0",
     "iconv-lite": "0.4.15",
-    "moment": "2.17.1"
+    "moment": "2.17.1",
+    "uuid": "3.0.1",
+    "extend": "3.0.0"
   }
 }
