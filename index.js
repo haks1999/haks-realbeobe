@@ -1,20 +1,11 @@
-var AWS = require("aws-sdk");
 var iconv = require('iconv-lite');
 var request = require('request');
 var cheerio = require('cheerio');
 var moment = require('moment');
 var extend = require('extend');
+var mysql      = require('mysql');
 
-const uuidV1 = require('uuid/v1');
-
-AWS.config.update({
-    region: "ap-northeast-2",
-    endpoint: "dynamodb.ap-northeast-2.amazonaws.com"
-});
-// node -e 'require("./index").batchCreate()'
-// node -e 'require("./index").batchDelete()'
-
-var docClient = new AWS.DynamoDB.DocumentClient();
+// node -e 'require("./index").handler()'
 
 var options = {
     global:{
@@ -24,9 +15,12 @@ var options = {
             page:10
         }
     },
-    db:{
-        batchSize: 25 , //dynamodb 배치 한 번에 최대 25개까지만 지원함
-        delay: 200    // 재귀로 막 넣으니 오류 없이 데이터 누락생김. capacity 때문임 ㅠㅠ. 일단 조금씩 하자
+    database:{
+        host     : 'realbeobe.cwirqa0sfusi.ap-northeast-2.rds.amazonaws.com',
+        user     : 'haks1999',
+        password : 'haks2000',
+        database : 'realbeobe',
+        multipleStatements: true
     },
     http:{
         "HU" :{
@@ -65,121 +59,15 @@ var options = {
     }
 };
 
+var connection = {
+    "DELETE": mysql.createConnection(options.database),
+    "HU": mysql.createConnection(options.database),
+    "TH": mysql.createConnection(options.database)
+}
 
-var tableSchema = {
-    "best_post":{
-        TableName: 'best_post'
-    }
-};
-
-var generateCreatePostBatchRequest = function(postList){
-
-    var postPutRequestList = [];
-    postList.forEach(function(data){
-        postPutRequestList.push({
-           "PutRequest": data
-        });
-    });
-
-    return {
-        RequestItems : {
-            "best_post": postPutRequestList
-        }
-    }
-};
-
-var generateCreatePostRequest =  function(post){
-    return extend({
-        Key: {
-            site_name: post.site_name,
-            site_post_id: post.site_post_id
-        },
-        AttributeUpdates: {
-            view_cnt: {
-                Action: "PUT",
-                Value: post.view_cnt
-            },
-            comment_cnt: {
-                Action: "PUT",
-                Value: post.comment_cnt
-            },
-            good_cnt: {
-                Action: "PUT",
-                Value: post.good_cnt
-            },
-            title: {
-                Action: "PUT",
-                Value: post.title
-            }
-        },
-        Item: {
-            post_id: uuidV1(),
-            site_name: post.site_name,
-            site_post_id: post.site_post_id,
-            view_cnt: post.view_cnt,
-            comment_cnt: post.comment_cnt,
-            good_cnt: post.good_cnt,
-            reg_dt: post.reg_dt,
-            reg_millis: post.reg_millis,
-            title: post.title,
-            link: post.link
-        }
-    },tableSchema["best_post"]);
-};
-
-var generateDeletePostBatchRequest = function(postList){
-    var postDeleteRequestList = [];
-    postList.forEach(function(data){
-        postDeleteRequestList.push({
-            "DeleteRequest": data
-        });
-    });
-
-    return {
-        RequestItems : {
-            "best_post": postDeleteRequestList
-        }
-    }
-};
-
-var generateDeletePostRequest = function(site_name, site_post_id){
-    return extend({
-        Key: {
-            site_name: site_name,
-            site_post_id: site_post_id
-        }
-    }, tableSchema["best_post"]);
-};
-
-var generateFindPostForDeleteRequest = function(site_name){
-    return extend({
-        IndexName: "site_name-reg_millis-index",
-        KeyConditionExpression: "site_name = :site_name and reg_millis < :range",
-        ExpressionAttributeValues: {
-            ":site_name" : site_name,
-            ":range": moment(options.global.now).subtract(options.global.range.hour, 'hours').valueOf()
-        }
-    }, tableSchema["best_post"]);
-};
-
-var addCreatePostRequestToList = function(postList, args){
-    var outOfRange = args.reg_dt_moment.isBefore(moment(options.global.now).subtract(options.global.range.hour, 'hours'));
-
-    if( !outOfRange ){
-        var post = generateCreatePostRequest({
-            site_name: args.site_name,
-            site_post_id: args.site_post_id,
-            title: args.title,
-            link: args.link,
-            comment_cnt: args.comment_cnt,
-            view_cnt: args.view_cnt,
-            good_cnt: args.good_cnt,
-            reg_dt: args.reg_dt_moment.toString(),
-            reg_millis: args.reg_dt_moment.valueOf()})
-
-        postList.push(post);
-    }
-};
+connection["DELETE"].connect();
+connection["HU"].connect();
+connection["TH"].connect();
 
 var parseAndGetPost = {
     "HU": function($){
@@ -207,16 +95,19 @@ var parseAndGetPost = {
                 var view_cnt = Number($(viewTd).text().replace(/[^0-9]/g, ''));
                 var good_cnt = Number($(goodTd).find('span.o').text().replace(/[^0-9]/g, ''));
 
-                addCreatePostRequestToList(postList, {
-                    site_name: "HU",
-                    site_post_id: site_post_id,
-                    title: title,
-                    link: link,
-                    comment_cnt: comment_cnt,
-                    view_cnt: view_cnt,
-                    good_cnt: good_cnt,
-                    reg_dt_moment: reg_dt_moment
-                });
+                if( reg_dt_moment.isAfter(moment(options.global.now).subtract(options.global.range.hour, 'hours'))){
+                    postList.push({
+                        site_cd: "HU",
+                        site_post_id: site_post_id,
+                        title: title,
+                        link: link,
+                        comment_cnt: comment_cnt,
+                        view_cnt: view_cnt,
+                        good_cnt: good_cnt,
+                        reg_dt_moment: reg_dt_moment
+                    });
+                }
+
             }
         });
         return postList;
@@ -241,16 +132,19 @@ var parseAndGetPost = {
                 var view_cnt = Number($(viewTd).text().replace(/[^0-9]/g, ''));
                 var good_cnt = Number($(goodTd).text().split('/')[0].replace(/[^0-9]/g, ''));
 
-                addCreatePostRequestToList(postList, {
-                    site_name: "TH",
-                    site_post_id: site_post_id,
-                    title: title,
-                    link: link,
-                    comment_cnt: comment_cnt,
-                    view_cnt: view_cnt,
-                    good_cnt: good_cnt,
-                    reg_dt_moment: reg_dt_moment
-                });
+                if( reg_dt_moment.isAfter(moment(options.global.now).subtract(options.global.range.hour, 'hours'))){
+                    postList.push({
+                        site_cd: "TH",
+                        site_post_id: site_post_id,
+                        title: title,
+                        link: link,
+                        comment_cnt: comment_cnt,
+                        view_cnt: view_cnt,
+                        good_cnt: good_cnt,
+                        reg_dt_moment: reg_dt_moment
+                    });
+                }
+
             }
         });
         return postList;
@@ -269,137 +163,72 @@ var parseAndGetPost = {
     }
 };
 
-var saveDocument = function(args){
+var saveQuery = 'REPLACE INTO tb_m_post (site_cd, site_post_id, title, link, comment_cnt, view_cnt, good_cnt, reg_dt) ' +
+    'VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+var savePostList = function(args){
 
-    setTimeout(function(args){
-        var currentTargetPostList = [];
-        var restTargetPostList = [];
-        if( args.postList.length > options.db.batchSize ){
-            currentTargetPostList = args.postList.slice(0, options.db.batchSize);
-            restTargetPostList = args.postList.slice(options.db.batchSize-1);
-        }else{
-            currentTargetPostList = args.postList;
-        }
-
-        var batchRequest = generateCreatePostBatchRequest(currentTargetPostList);
-
-        docClient.batchWrite(batchRequest, function (err, data) {
-            if (err) {
-                console.error("Unable to add item. Error JSON:", JSON.stringify(err, null, 2));
-            } else {
-                console.log("saveDocument ", args.site_name, currentTargetPostList.length, restTargetPostList.length);
-                if( restTargetPostList.length < 1 ){
-                    if( args.nextCallFnc ){
-                        args.nextCallFnc.apply(null, [{site_name: args.site_name, pageNumber: args.pageNumber+1}]);
-                    }
-                }else{
-                    saveDocument({site_name: args.site_name, pageNumber:args.pageNumber, postList:restTargetPostList, nextCallFnc:args.nextCallFnc});
-                }
-            }
+    if(args.postList.length < 1){
+        connection[args.site_cd].end();
+        return;
+    }
+    var saveQueryList = (function(){
+        var arr = [];
+        args.postList.forEach(function(post){
+            var params = [post.site_cd, post.site_post_id, post.title, post.link, post.comment_cnt, post.view_cnt, post.good_cnt, post.reg_dt_moment.format('YYYY-MM-DD HH:mm:ss')];
+            arr.push(mysql.format(saveQuery, params));
         });
-    }, options.db.delay, args);
+        return arr;
+    })();
 
+    connection[args.site_cd].query(saveQueryList.join(';'), function(err, rows, results) {
+        if (err){
+            connection[args.site_cd].end();
+            throw err;
+        }
+        console.log('savePostList - ', 'changed rows: ', args.site_cd, args.postList.length);
+        args.nextCallFnc.apply(null, [{site_cd: args.site_cd, pageNumber: args.pageNumber+1}]);
+    });
 };
 
+var deleteQuery = 'DELETE FROM tb_m_post where reg_dt < ?';
+var deletePostList = function(args){
 
-var deleteDocument = function(args){
-
-    setTimeout(function(args){
-        var currentTargetPostList = [];
-        var restTargetPostList = [];
-        if( args.postList.length > options.db.batchSize ){
-            currentTargetPostList = args.postList.slice(0, options.db.batchSize);
-            restTargetPostList = args.postList.slice(options.db.batchSize-1);
-        }else{
-            currentTargetPostList = args.postList;
+    var deleteQueryBinded = mysql.format(deleteQuery, [options.global.now.format('YYYY-MM-DD HH:mm:ss')]);
+    connection["DELETE"].query(deleteQueryBinded, function(err, rows, results) {
+        if (err){
+            connection["DELETE"].end();
+            throw err;
         }
-
-        var batchRequest = generateDeletePostBatchRequest(currentTargetPostList);
-
-        docClient.batchWrite(batchRequest, function (err, data) {
-            if (err) {
-                console.error("Unable to add item. Error JSON:", JSON.stringify(err, null, 2));
-            } else {
-                console.log("deleteDocument ", args.site_name, currentTargetPostList.length, restTargetPostList.length);
-                if(restTargetPostList.length > 0){
-                    deleteDocument({site_name: args.site_name, postList:restTargetPostList});
-                }
-            }
-        });
-    }, options.db.delay, args);
-
+        console.log('deletePostList - ', 'changed rows: ', rows.changedRows);
+        connection["DELETE"].end();
+    });
 };
-
-// var deleteDocument = function(args){
-//
-//     if(args.postList.length < 1) return;
-//
-//     setTimeout(function(args){
-//
-//         docClient.delete(args.postList.pop(), function (err, data) {
-//             if (err) {
-//                 console.error("Unable to add item. Error JSON:", JSON.stringify(err, null, 2));
-//             } else {
-//                 console.log("deleteDocument ", args.site_name, args.postList.length);
-//                 deleteDocument({site_name: args.site_name, postList:args.postList});
-//             }
-//         });
-//     }, 500, args);
-//
-// };
 
 var callAndAnalysis = function(args){
-    if(isNaN(args.pageNumber) || args.pageNumber > options.global.range.page) return;
+    if(isNaN(args.pageNumber) || args.pageNumber > options.global.range.page){
+        connection[args.site_cd].end();
+        return;
+    };
 
-    options.http[args.site_name].uri = options.http[args.site_name].uriWithoutPageNumber + args.pageNumber;
+    options.http[args.site_cd].uri = options.http[args.site_cd].uriWithoutPageNumber + args.pageNumber;
 
-    request(options.http[args.site_name], function (error, response, html) {
+    request(options.http[args.site_cd], function (error, response, html) {
         if (!error && response.statusCode == 200) {
             var strContents = new Buffer(html);
-            var $ = cheerio.load(iconv.decode(strContents, options.http[args.site_name].siteEncoding).toString());
-            var postList = parseAndGetPost[args.site_name]($);
-            if( postList && postList.length > 1){
-                saveDocument({site_name:args.site_name, pageNumber:args.pageNumber, postList:postList, type: 'put', nextCallFnc: callAndAnalysis});
-            }
+            var $ = cheerio.load(iconv.decode(strContents, options.http[args.site_cd].siteEncoding).toString());
+            var postList = parseAndGetPost[args.site_cd]($);
+            console.log('callAndAnalysis - ', 'targetPosts: ' , args.site_cd, postList.length);
+            savePostList({site_cd:args.site_cd, pageNumber:args.pageNumber, postList:postList, nextCallFnc: callAndAnalysis});
         }
     });
-};
-
-var findAndDelete = function(args){
-
-    docClient.query(generateFindPostForDeleteRequest(args.site_name), function(err, data) {
-        if (err) {
-            console.log(JSON.stringify(err, null, 2));
-        } else {
-            var postList = [];
-            data.Items.forEach(function(item){
-                postList.push(generateDeletePostRequest(item.site_name, item.site_post_id));
-            });
-
-            if( postList.length > 1){
-                deleteDocument({site_name:args.site_name, postList:postList});
-            }
-        }
-    });
-
 };
 
 exports.handler = function(){
-    callAndAnalysis({site_name:"HU", pageNumber:options.http["HU"].startPageNumber});
-};
 
-exports.batchCreate = function(){
-    callAndAnalysis({site_name:"HU", pageNumber:options.http["HU"].startPageNumber});
-    callAndAnalysis({site_name:"TH", pageNumber:options.http["TH"].startPageNumber});
+    callAndAnalysis({site_cd:"HU", pageNumber:options.http["HU"].startPageNumber});
+    callAndAnalysis({site_cd:"TH", pageNumber:options.http["TH"].startPageNumber});
     //callAndAnalysis({site_name:"DB", pageNumber:options.http["DB"].startPageNumber});
-};
-
-exports.batchDelete = function(){
-
-    findAndDelete({site_name:"HU"});
-    findAndDelete({site_name:"TH"});
-    //findAndDelete({site_name:"DB"});
-
+    deletePostList();
 
 };
 
