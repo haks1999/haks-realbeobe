@@ -29,7 +29,7 @@ var options = {
         delay: 200    // 재귀로 막 넣으니 오류 없이 데이터 누락생김. capacity 때문임 ㅠㅠ. 일단 조금씩 하자
     },
     http:{
-        "humoruniv" :{
+        "HU" :{
             uri: '',
             uriWithoutPageNumber: 'http://web.humoruniv.com/board/humor/list.html?table=pds&pg=',
             startPageNumber:0,
@@ -40,7 +40,7 @@ var options = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.95 Safari/537.36"
             }
         },
-        "todayhumor" :{
+        "TH" :{
             uri: '',
             uriWithoutPageNumber: 'http://www.todayhumor.co.kr/board/list.php?table=bestofbest&page=',
             startPageNumber:1,
@@ -51,7 +51,7 @@ var options = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.95 Safari/537.36"
             }
         },
-        "bobaedream" :{
+        "BD" :{
             uri: '',
             uriWithoutPageNumber: 'http://m.bobaedream.co.kr/board/new_writing/best/',
             startPageNumber:1,
@@ -157,7 +157,7 @@ var generateFindPostForDeleteRequest = function(site_name){
         KeyConditionExpression: "site_name = :site_name and reg_millis < :range",
         ExpressionAttributeValues: {
             ":site_name" : site_name,
-            ":range": moment(options.global.now).subtract(options.global.range.hour, 'minutes').valueOf()
+            ":range": moment(options.global.now).subtract(options.global.range.hour, 'hours').valueOf()
         }
     }, tableSchema["best_post"]);
 };
@@ -182,7 +182,7 @@ var addCreatePostRequestToList = function(postList, args){
 };
 
 var parseAndGetPost = {
-    "humoruniv": function($){
+    "HU": function($){
         var postList = [];
         $('div#cnts_list_new > div > table[class!=list_hd2] > tr').each(function(index, elemRow){
             // 광고 글은 iframe 으로 보여줌. 제외한다.
@@ -208,7 +208,7 @@ var parseAndGetPost = {
                 var good_cnt = Number($(goodTd).find('span.o').text().replace(/[^0-9]/g, ''));
 
                 addCreatePostRequestToList(postList, {
-                    site_name: "humoruniv",
+                    site_name: "HU",
                     site_post_id: site_post_id,
                     title: title,
                     link: link,
@@ -221,7 +221,7 @@ var parseAndGetPost = {
         });
         return postList;
     },
-    "todayhumor": function($){
+    "TH": function($){
         var postList = [];
         $('div.whole_box > div.vertical_container.cf > div.table_container > table > tbody > tr.view').each(function(index, elemRow){
 
@@ -242,7 +242,7 @@ var parseAndGetPost = {
                 var good_cnt = Number($(goodTd).text().split('/')[0].replace(/[^0-9]/g, ''));
 
                 addCreatePostRequestToList(postList, {
-                    site_name: "todayhumor",
+                    site_name: "TH",
                     site_post_id: site_post_id,
                     title: title,
                     link: link,
@@ -255,7 +255,7 @@ var parseAndGetPost = {
         });
         return postList;
     },
-    "bobaedream": function($){
+    "BD": function($){
 
         var postList = [];
         $('div.content.community ul.rank li div.info').each(function(index, elemRow){
@@ -385,20 +385,20 @@ var findAndDelete = function(args){
 };
 
 exports.handler = function(){
-    callAndAnalysis({site_name:"humoruniv", pageNumber:options.http["humoruniv"].startPageNumber});
+    callAndAnalysis({site_name:"HU", pageNumber:options.http["HU"].startPageNumber});
 };
 
 exports.batchCreate = function(){
-    //callAndAnalysis({site_name:"humoruniv", pageNumber:options.http["humoruniv"].startPageNumber});
-    //callAndAnalysis({site_name:"todayhumor", pageNumber:options.http["todayhumor"].startPageNumber});
-    callAndAnalysis({site_name:"bobaedream", pageNumber:options.http["bobaedream"].startPageNumber});
+    callAndAnalysis({site_name:"HU", pageNumber:options.http["HU"].startPageNumber});
+    callAndAnalysis({site_name:"TH", pageNumber:options.http["TH"].startPageNumber});
+    //callAndAnalysis({site_name:"DB", pageNumber:options.http["DB"].startPageNumber});
 };
 
 exports.batchDelete = function(){
 
-    //findAndDelete({site_name:"humoruniv"});
-    //findAndDelete({site_name:"todayhumor"});
-    findAndDelete({site_name:"bobaedream"});
+    findAndDelete({site_name:"HU"});
+    findAndDelete({site_name:"TH"});
+    //findAndDelete({site_name:"DB"});
 
 
 };
